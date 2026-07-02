@@ -1,52 +1,154 @@
 # CWA Windy Temperature Visualization
 
-FastAPI backend and browser frontend for visualizing Taiwan CWA automatic weather station temperatures on top of Windy.
+Live Demo: https://weather-windy.onrender.com
 
-## Setup
+This project visualizes Taiwan CWA automatic weather station observations on top of a Windy weather map. The backend protects server-side API keys, normalizes CWA data, and exposes clean JSON endpoints for the browser map.
 
-1. Install Python dependencies:
+## Features
 
-   ```powershell
-   python -m pip install -r backend/requirements.txt
-   ```
+- Windy Map Forecast API weather basemap.
+- CWA automatic weather station temperature markers.
+- Temperature-based marker colors.
+- Station popup with county, town, temperature, humidity, wind, weather, and observation time.
+- Optional Windy Point Forecast in station popups.
+- CWA observed temperature vs Windy forecast difference.
+- Windy layer selector.
+- CWA overlay toggle.
+- Station label toggle.
+- County filter.
+- Minimum temperature filter.
+- Temperature legend.
+- Auto refresh and manual refresh.
+- GeoJSON endpoint for map clients.
+- Minimal Windy diagnostic page at `/windy-test`.
 
-2. Keep secrets in `.env` at the project root:
+## Tech Stack
 
-   ```env
-   CWA_TOKEN=your_cwa_api_key
-   WINDY_MAP_API_KEY=your_windy_map_forecast_api_key
-   WINDY_POINT_API_KEY=your_windy_point_forecast_api_key
-   CACHE_TTL_SECONDS=600
-   ```
+- Backend: Python, FastAPI, Uvicorn, Pydantic
+- Frontend: HTML, CSS, JavaScript
+- Map: Windy Map Forecast API, Leaflet overlay layers
+- Weather observations: Taiwan CWA OpenData
+- Forecast lookup: Windy Point Forecast API
+- Deployment target: Render Web Service
 
-   `CWA_TOKEN` is server-side only and is never sent to the browser. `WINDY_MAP_API_KEY` is sent to the frontend so Windy Map Forecast API can initialize. `WINDY_POINT_API_KEY` is reserved for point forecast calls.
+## Architecture
 
-3. Run the app:
+```text
+CWA OpenData
+  -> FastAPI backend
+  -> normalize, validate, cache
+  -> /api/temperature/latest
+  -> browser frontend
+  -> Windy map + Leaflet CWA marker overlay
 
-   ```powershell
-   python -m uvicorn backend.app.main:app --reload
-   ```
+Windy Point Forecast API
+  -> FastAPI backend only
+  -> /api/windy/point
+  -> station popup forecast
+```
 
-4. Open:
+The frontend receives the Windy Map key because the Windy browser map requires it. The CWA token and Windy Point Forecast key stay server-side.
 
-   ```text
-   http://127.0.0.1:8000
-   ```
+## Local Setup
+
+Install dependencies:
+
+```powershell
+python -m pip install -r backend/requirements.txt
+```
+
+Create `.env` in the project root:
+
+```env
+CWA_TOKEN=your_cwa_api_key
+WINDY_MAP_API_KEY=your_windy_map_forecast_api_key
+WINDY_POINT_API_KEY=your_windy_point_forecast_api_key
+CACHE_TTL_SECONDS=600
+```
+
+Run the app:
+
+```powershell
+python -m uvicorn backend.app.main:app --reload
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+Windy diagnostic page:
+
+```text
+http://127.0.0.1:8000/windy-test
+```
 
 ## API
 
+- `GET /`
+- `GET /windy-test`
+- `GET /api/health`
+- `GET /api/config`
+- `GET /api/debug/config`
 - `GET /api/temperature/latest`
 - `GET /api/temperature/latest?refresh=true`
 - `GET /api/temperature/geojson`
 - `GET /api/temperature/stations/{station_id}`
 - `GET /api/windy/point?lat={lat}&lon={lon}`
-- `GET /api/health`
 
-## Notes
+## Render Deployment
 
-- The backend caches normalized CWA observations in memory for `CACHE_TTL_SECONDS`.
-- Invalid records are filtered out when latitude, longitude, station ID, observation time, or temperature is missing.
-- Temperature values outside `-20 C` to `50 C` are ignored.
-- The frontend uses Windy Map Forecast API when `WINDY_MAP_API_KEY` is configured.
-- If `WINDY_MAP_API_KEY` is missing, the page falls back to an OpenStreetMap Leaflet map.
-- The optional Windy point forecast popup uses `WINDY_POINT_API_KEY` only from the backend.
+Create one Render Web Service. You do not need separate frontend and backend deployments.
+
+Build Command:
+
+```bash
+pip install -r backend/requirements.txt
+```
+
+Start Command:
+
+```bash
+uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+```
+
+Environment Variables:
+
+```env
+CWA_TOKEN=your_cwa_api_key
+WINDY_MAP_API_KEY=your_windy_map_forecast_api_key
+WINDY_POINT_API_KEY=your_windy_point_forecast_api_key
+CACHE_TTL_SECONDS=600
+```
+
+For Windy Map API domain restrictions, include:
+
+```text
+localhost, 127.0.0.1, weather-windy.onrender.com
+```
+
+Project identification can be:
+
+```text
+https://weather-windy.onrender.com/
+```
+
+## Data Validation
+
+The backend removes invalid observations when:
+
+- Station ID is missing.
+- Latitude or longitude is missing.
+- Observation time is invalid.
+- Temperature is missing or not numeric.
+- Temperature is outside `-20 C` to `50 C`.
+- CWA invalid marker values such as `-99` or `-999` are encountered.
+
+## Security Notes
+
+- Do not commit `.env`.
+- `CWA_TOKEN` stays server-side.
+- `WINDY_POINT_API_KEY` stays server-side.
+- `WINDY_MAP_API_KEY` is browser-visible by design because Windy Map Forecast API runs in the frontend.
+- Use Windy domain restrictions to reduce misuse of the map key.
