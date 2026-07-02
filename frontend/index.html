@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CWA Temperature Broadcast</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.4.0/dist/leaflet.css"
+    />
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>CWA Temperature Broadcast</h1>
+        <p id="status">Loading station observations...</p>
+      </div>
+      <button id="refreshButton" type="button">Refresh</button>
+    </header>
+
+    <main>
+      <section id="mapShell">
+        <div id="map"></div>
+      </section>
+
+      <aside class="panel">
+        <section>
+          <h2>Layers</h2>
+          <label>
+            Base map
+            <select id="baseMapSelect">
+              <option value="osm">OpenStreetMap</option>
+              <option value="topo">Topographic</option>
+            </select>
+          </label>
+          <label class="check">
+            <input id="cwaToggle" type="checkbox" checked />
+            CWA observations
+          </label>
+          <label class="check">
+            <input id="labelToggle" type="checkbox" />
+            Station labels
+          </label>
+        </section>
+
+        <section>
+          <h2>Filters</h2>
+          <label>
+            County
+            <select id="countySelect">
+              <option value="">All counties</option>
+            </select>
+          </label>
+          <label>
+            Minimum temperature
+            <input id="thresholdInput" type="number" min="-20" max="50" step="1" />
+          </label>
+        </section>
+
+        <section>
+          <h2>Legend</h2>
+          <div id="legend"></div>
+        </section>
+
+        <section>
+          <h2>Stations</h2>
+          <div id="stationList"></div>
+        </section>
+      </aside>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.4.0/dist/leaflet.js"></script>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

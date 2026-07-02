@@ -1,0 +1,4 @@
+.env
+weather.csv
+weather.db
+__pycache__/
