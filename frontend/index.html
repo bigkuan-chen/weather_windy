@@ -4,11 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CWA Temperature Broadcast</title>
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.4.0/dist/leaflet.css"
-    />
-    <link rel="stylesheet" href="/assets/styles.css" />
+    <link rel="stylesheet" href="/assets/styles.css?v=windy-fullscreen-1" />
   </head>
   <body>
     <header class="topbar">
@@ -19,19 +15,26 @@
       <button id="refreshButton" type="button">Refresh</button>
     </header>
 
-    <main>
+    <main class="app-shell">
       <section id="mapShell">
-        <div id="map"></div>
+        <div id="windy"></div>
+        <div id="mapStatus">Initializing map...</div>
+        <div id="mapFallback" hidden>
+          <div id="fallbackMap"></div>
+          <div id="fallbackNote" class="fallback-note">Showing fallback map.</div>
+        </div>
       </section>
 
       <aside class="panel">
         <section>
           <h2>Layers</h2>
           <label>
-            Base map
-            <select id="baseMapSelect">
-              <option value="osm">OpenStreetMap</option>
-              <option value="topo">Topographic</option>
+            Windy layer
+            <select id="overlaySelect">
+              <option value="wind">Wind</option>
+              <option value="temp">Temperature</option>
+              <option value="rain">Rain</option>
+              <option value="clouds">Clouds</option>
             </select>
           </label>
           <label class="check">
@@ -41,6 +44,10 @@
           <label class="check">
             <input id="labelToggle" type="checkbox" />
             Station labels
+          </label>
+          <label class="check">
+            <input id="pointForecastToggle" type="checkbox" />
+            Windy point forecast
           </label>
         </section>
 
@@ -71,6 +78,7 @@
     </main>
 
     <script src="https://unpkg.com/leaflet@1.4.0/dist/leaflet.js"></script>
-    <script src="/assets/app.js"></script>
+    <script src="https://api.windy.com/assets/map-forecast/libBoot.js"></script>
+    <script src="/assets/app.js?v=windy-fullscreen-1"></script>
   </body>
 </html>

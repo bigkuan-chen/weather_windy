@@ -28,6 +28,12 @@ class Settings:
         "https://opendata.cwa.gov.tw/fileapi/v1/opendataapi/O-A0001-001",
     )
     cache_ttl_seconds = int(os.getenv("CACHE_TTL_SECONDS", "600"))
+    windy_map_api_key = (
+        os.getenv("WINDY_MAP_API_KEY")
+        or os.getenv("WINDY_API_KEY")
+        or os.getenv("NEXT_PUBLIC_WINDY_API_KEY", "")
+    )
+    windy_point_api_key = os.getenv("WINDY_POINT_API_KEY", "")
     allowed_origins = [
         origin.strip()
         for origin in os.getenv(

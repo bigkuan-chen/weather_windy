@@ -1,9 +1,8 @@
 const state = {
   map: null,
+  windyApi: null,
   markerLayer: null,
   labelLayer: null,
-  baseLayers: {},
-  activeBaseLayer: null,
   stations: [],
   timer: null,
 };
@@ -20,12 +19,51 @@ const legendRows = [
 
 const statusEl = document.querySelector("#status");
 const refreshButton = document.querySelector("#refreshButton");
-const baseMapSelect = document.querySelector("#baseMapSelect");
+const overlaySelect = document.querySelector("#overlaySelect");
 const cwaToggle = document.querySelector("#cwaToggle");
 const labelToggle = document.querySelector("#labelToggle");
+const pointForecastToggle = document.querySelector("#pointForecastToggle");
 const countySelect = document.querySelector("#countySelect");
 const thresholdInput = document.querySelector("#thresholdInput");
 const stationList = document.querySelector("#stationList");
+const mapFallback = document.querySelector("#mapFallback");
+const mapStatus = document.querySelector("#mapStatus");
+const fallbackNote = document.querySelector("#fallbackNote");
+
+const overlayLabels = {
+  wind: "Wind",
+  temp: "Temperature",
+  rain: "Rain",
+  clouds: "Clouds",
+  pressure: "Pressure",
+  waves: "Waves",
+  rainAccu: "Rain accumulation",
+  snowAccu: "Snow accumulation",
+  gust: "Wind gusts",
+};
+
+window.addEventListener("error", (event) => {
+  setMapStatus(`Browser error: ${event.message}`);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason?.message || String(event.reason);
+  setMapStatus(`Browser error: ${reason}`);
+});
+
+function loadStylesheetOnce(id, href) {
+  if (document.querySelector(`#${id}`)) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const link = document.createElement("link");
+    link.id = id;
+    link.rel = "stylesheet";
+    link.href = href;
+    link.onload = resolve;
+    link.onerror = reject;
+    document.head.appendChild(link);
+  });
+}
 
 function colorByTemperature(temp) {
   if (temp < 10) return "#2b6cb0";
@@ -78,6 +116,7 @@ function filteredStations() {
 }
 
 function markerPopup(station) {
+  const forecastId = `forecast-${station.station_id}`;
   return `
     <strong>${escapeHtml(station.station_name)}</strong><br/>
     ${escapeHtml(station.county || "")} ${escapeHtml(station.town || "")}<br/>
@@ -86,7 +125,58 @@ function markerPopup(station) {
     Wind: ${station.wind_speed_mps ?? "-"} m/s<br/>
     Weather: ${escapeHtml(station.weather || "-")}<br/>
     Time: ${escapeHtml(formatTime(station.observed_at))}
+    <div id="${forecastId}" class="forecast-box"></div>
   `;
+}
+
+function formatNumber(value, digits = 1) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  return Number(value).toFixed(digits);
+}
+
+function renderForecastHtml(data, station) {
+  const summary = data.summary || {};
+  const forecastTemp = summary.temperature_c;
+  const diff =
+    forecastTemp === null || forecastTemp === undefined
+      ? null
+      : forecastTemp - station.temperature_c;
+
+  return `
+    <hr/>
+    <strong>Windy forecast (${escapeHtml(data.model || "gfs")})</strong><br/>
+    Forecast time: ${escapeHtml(formatTime(data.forecast_at))}<br/>
+    Temperature: ${formatNumber(forecastTemp)} C<br/>
+    CWA difference: ${diff === null ? "-" : `${formatNumber(diff, 1)} C`}<br/>
+    Humidity: ${formatNumber(summary.humidity_percent, 0)}%<br/>
+    Wind: ${formatNumber(summary.wind_speed_mps)} m/s<br/>
+    Pressure: ${formatNumber(summary.pressure_hpa, 0)} hPa<br/>
+    Precip past 3h: ${formatNumber(summary.precipitation_past3h_mm)} mm
+  `;
+}
+
+async function loadPointForecast(station) {
+  if (!pointForecastToggle.checked) return;
+
+  const forecastEl = document.querySelector(`#forecast-${CSS.escape(station.station_id)}`);
+  if (!forecastEl) return;
+
+  forecastEl.innerHTML = '<hr/><span class="muted">Loading Windy forecast...</span>';
+  try {
+    const params = new URLSearchParams({
+      lat: station.lat,
+      lon: station.lon,
+      model: "gfs",
+    });
+    const response = await fetch(`/api/windy/point?${params.toString()}`);
+    if (!response.ok) throw new Error(`API returned ${response.status}`);
+    const data = await response.json();
+    forecastEl.innerHTML = renderForecastHtml(data, station);
+  } catch (error) {
+    forecastEl.innerHTML =
+      '<hr/><span class="muted">Windy forecast is unavailable.</span>';
+    console.error(error);
+  }
 }
 
 function renderMarkers() {
@@ -98,15 +188,17 @@ function renderMarkers() {
 
   filteredStations().forEach((station) => {
     const color = colorByTemperature(station.temperature_c);
-    L.circleMarker([station.lat, station.lon], {
+    const marker = L.circleMarker([station.lat, station.lon], {
       radius: radiusByTemperature(station.temperature_c),
       fillColor: color,
       fillOpacity: 0.85,
       color: "#ffffff",
       weight: 1,
     })
-      .bindPopup(markerPopup(station))
-      .addTo(state.markerLayer);
+      .bindPopup(markerPopup(station));
+
+    marker.on("popupopen", () => loadPointForecast(station));
+    marker.addTo(state.markerLayer);
 
     if (labelToggle.checked && state.map.getZoom() >= 8) {
       L.marker([station.lat, station.lon], {
@@ -156,6 +248,10 @@ function renderCountyOptions() {
   countySelect.value = counties.includes(current) ? current : "";
 }
 
+function setMapStatus(message) {
+  mapStatus.textContent = message;
+}
+
 async function loadStations(refresh = false) {
   refreshButton.disabled = true;
   statusEl.textContent = "Loading CWA observations...";
@@ -177,41 +273,154 @@ async function loadStations(refresh = false) {
   }
 }
 
-function initMap() {
-  state.map = L.map("map", {
+async function initFallbackMap(reason = "Windy is unavailable.") {
+  if (state.map) return;
+  try {
+    await loadStylesheetOnce(
+      "leaflet-fallback-css",
+      "https://unpkg.com/leaflet@1.4.0/dist/leaflet.css"
+    );
+  } catch (error) {
+    console.warn("Unable to load fallback Leaflet CSS", error);
+  }
+  if (state.map) return;
+
+  mapFallback.hidden = false;
+  overlaySelect.disabled = true;
+  setMapStatus("Fallback Leaflet map");
+  fallbackNote.textContent = `${reason} Showing fallback map.`;
+  state.map = L.map("fallbackMap", {
     center: [23.7, 121.0],
     zoom: 7,
     preferCanvas: true,
   });
 
-  state.baseLayers = {
-    osm: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    }),
-    topo: L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
-      maxZoom: 17,
-      attribution:
-        'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
-    }),
-  };
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(state.map);
 
-  state.activeBaseLayer = state.baseLayers.osm.addTo(state.map);
   state.markerLayer = L.layerGroup().addTo(state.map);
   state.labelLayer = L.layerGroup().addTo(state.map);
   state.map.on("zoomend", renderMarkers);
   renderMarkers();
 }
 
-function switchBaseMap() {
-  if (!state.map) return;
-  if (state.activeBaseLayer) {
-    state.map.removeLayer(state.activeBaseLayer);
+function fillAllowedOverlays(store) {
+  let allowed = [];
+  try {
+    allowed = store.getAllowed("overlay") || [];
+  } catch (error) {
+    console.warn("Unable to read Windy overlays", error);
   }
-  state.activeBaseLayer = state.baseLayers[baseMapSelect.value].addTo(state.map);
+
+  const preferred = ["wind", "temp", "rain", "clouds", "pressure"];
+  const values = allowed.length
+    ? preferred.filter((value) => allowed.includes(value)).concat(
+        allowed.filter((value) => !preferred.includes(value))
+      )
+    : preferred;
+
+  overlaySelect.innerHTML = "";
+  values.forEach((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = overlayLabels[value] || value;
+    overlaySelect.appendChild(option);
+  });
+
+  if (!values.includes("wind")) {
+    overlaySelect.value = values[0] || "";
+  } else {
+    overlaySelect.value = "wind";
+  }
 }
 
-baseMapSelect.addEventListener("change", switchBaseMap);
+function setWindyOverlay(value) {
+  if (!state.windyApi || !value) return;
+
+  try {
+    state.windyApi.store.set("overlay", value);
+    window.setTimeout(() => {
+      const active = state.windyApi.store.get("overlay");
+      overlaySelect.value = active;
+      setMapStatus(`Windy layer: ${overlayLabels[active] || active}`);
+    }, 100);
+  } catch (error) {
+    console.error(error);
+    setMapStatus(`Windy could not switch to ${value}`);
+  }
+}
+
+async function initMap() {
+  try {
+    const response = await fetch("/api/config");
+    const config = await response.json();
+
+    if (!config.has_windy_api_key || typeof windyInit !== "function") {
+      const reason = !config.has_windy_api_key
+        ? "Windy API key is missing."
+        : "Windy library did not load.";
+      setMapStatus(reason);
+      initFallbackMap(reason);
+      return;
+    }
+
+    setMapStatus("Loading Windy map...");
+    const windyTimeout = window.setTimeout(() => {
+      if (!state.windyApi) {
+        initFallbackMap("Windy initialization timed out.");
+      }
+    }, 5000);
+
+    windyInit(
+      {
+        key: config.windy_api_key,
+        lat: 23.7,
+        lon: 121.0,
+        zoom: 7,
+        overlay: overlaySelect.value,
+        verbose: false,
+      },
+      (windyApi) => {
+        window.clearTimeout(windyTimeout);
+        state.windyApi = windyApi;
+        state.map = windyApi.map;
+        mapFallback.hidden = true;
+        overlaySelect.disabled = false;
+        fillAllowedOverlays(windyApi.store);
+        state.markerLayer = L.layerGroup().addTo(state.map);
+        state.labelLayer = L.layerGroup().addTo(state.map);
+        setWindyOverlay(overlaySelect.value);
+        try {
+          windyApi.store.set("particlesAnim", "on");
+        } catch (error) {
+          console.warn("Unable to enable Windy particles", error);
+        }
+        if (windyApi.broadcast) {
+          windyApi.broadcast.on("redrawFinished", () => {
+            const active = windyApi.store.get("overlay");
+            setMapStatus(`Windy layer: ${overlayLabels[active] || active}`);
+          });
+        }
+        state.map.on("zoomend", renderMarkers);
+        window.setTimeout(() => {
+          state.map.invalidateSize();
+          const active = windyApi.store.get("overlay");
+          setMapStatus(`Windy layer: ${overlayLabels[active] || active}`);
+          renderMarkers();
+        }, 300);
+      }
+    );
+  } catch (error) {
+    console.error(error);
+    initFallbackMap("Windy initialization failed.");
+  }
+}
+
+overlaySelect.addEventListener("change", () => {
+  setWindyOverlay(overlaySelect.value);
+});
 cwaToggle.addEventListener("change", renderMarkers);
 labelToggle.addEventListener("change", renderMarkers);
 countySelect.addEventListener("change", () => {
